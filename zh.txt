@@ -1,0 +1,475 @@
+Egészíts ki a csokoládé pasztillák vizsgálatát végzõ programot.  
+
+A kordetektalo1 függvényben
+K1. Módosítsd a minimális és maximális sugarat úgy, hogy a kördetektáló a pasztillákat detektálja a képen.
+      A többi paraméter be van állítva, nem kell módosítanod. 
+
+A main-ben:
+
+img: színes kép, amivel dolgoznod kell
+gray: a kép szürkeskálás változata
+
+    Végezz mediánszûrést a színes képre 11x11-es ablakmérettel. 
+    Mentsd a képet: filtered_stud.png
+    Rajzold ki a detektált körök középpontját a színes képre. 
+    A rajzoláshoz használd a circle körrajzoló függvényt. A szín legyen tiszta piros. A sugár legyen 6. A thickness paraméter -1 vagy FILLED legyen.
+    Mentsd a módosított képet: result_stud.png
+    Határozd meg a körök középpontja alá esõ pixelek KÉK komponensének átlagát a szûrt képen.  
+    Jelenítsd meg az átlagot - mint valós számot - a standard kimeneten. Más üzenetet ne írj ki. 
+
+#include <iostream>
+#include <vector>
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
+using namespace std;
+using namespace cv;
+
+void kordetektalo1(const Mat& gray, vector<Vec3f>& circles) {
+
+	int cannyTh = 60;  
+	int minPoints = 30; 
+	int minR = 16;  //K1: allitsd be
+	int maxR = 18;  //K1: allitsd be
+	int d = 2; 
+	int minDist = 10; 
+	
+	cv::HoughCircles(gray, circles, cv::HOUGH_GRADIENT, d, minDist, cannyTh, minPoints, minR, maxR);
+}
+
+int main() {
+	Mat img = imread("past.jpg", IMREAD_COLOR);
+
+	Mat gray;
+	cvtColor(img, gray, COLOR_BGR2GRAY);
+
+	vector<Vec3f> circles;
+	kordetektalo1(gray, circles);
+
+	// 1. Végezz mediánszûrés 11x11-es ablakmérettel. 
+
+    Mat_<Vec3b> img2 = img.clone();
+	medianBlur(img2, img2, 11);
+	imwrite("filtered_stud.png", img2);
+
+	// 2. rajzold ki a detektált köröket az eredeti képre
+	// sugár: 6, szín: tiszta piros, vonalvastagság: FILLED
+
+	for (auto c : circles) {
+		circle(img, Point(c[0], c[1]), 0, Scalar(0, 0, 255), 12, FILLED);
+	}
+	imwrite("result_stud.png", img);
+
+	// 3. Határozd meg a körök középpontja alá esõ pixelek 
+	// KÉK komponensének átlagát a SZÛRT képen.  
+	double mean_v = 0;
+
+	for (auto c : circles) {
+		mean_v += img2.at<Vec3b>(c[1], c[0])[0];
+	}
+	mean_v /= circles.size();
+
+	// Jelenitsd meg az atlagot a standard kimeneten.
+	// cout << mean_v << endl;
+
+	cout << mean_v << endl;
+	waitKey();
+
+	return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////
+
+
+Írj programot, mely az alábbi lépéseket végzi el:
+
+1. Olvasd be a filled.jpg képet színesben.
+2. Bontsd szét csatornákra a képet.
+    Mentsd a piros csatornát tartalmazó képet: red_stud.png
+3. Invertáld a piros csatornát tartalmazó képet. 
+    Mentsd a képet: inv_red_stud.png
+4. Olvaszd össze a kék, zöld és a módoított piros csatornát tartalmazó képeket egyetlen három csatornás képpé.
+    Mentsd a képet: result_stud.png
+
+	#ifndef _my_util_cpp
+#define _my_util_cpp
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include <atomic>
+#include <iostream>
+#include <map>
+#include <tuple>
+
+using namespace std;
+using namespace cv;
+
+#if defined(NOHEADLESS)
+namespace Resolution { //TODO cant believe this hack works
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <X11/Xlib.h>
+#endif
+
+	//https://stackoverflow.com/questions/11041607/getting-screen-size-on-opencv
+	void getScreenResolution(int &width, int &height) {
+#if defined(_WIN32)
+		width = (int)GetSystemMetrics(SM_CXSCREEN);
+		height = (int)GetSystemMetrics(SM_CYSCREEN);
+#else
+		Display* disp = XOpenDisplay(NULL);
+		Screen*  scrn = DefaultScreenOfDisplay(disp);
+		width = scrn->width;
+		height = scrn->height;
+#endif
+	}
+
+}
+#endif
+
+namespace mUtil {
+	using namespace cv;
+
+	static bool mmydebug = false;
+#define DEBUG(X) do { if(mmydebug) { X } } while(0)
+
+	static int __mycounter = 0;
+	//TODO enlarge if too small?
+	void mshow(const cv::Mat &img, string name = "",  bool enlarge_small = true) {
+#if defined(NOHEADLESS)	    
+		if (!mmydebug) return;
+
+		Mat tmp;
+		img.copyTo(tmp);
+		int w, h;
+		Resolution::getScreenResolution(w, h);
+		double ratio = 1.0;
+		// size to at most 1/4th of the screen
+		ratio = min(1.0, min(1.0 / (img.rows / (h / 2.0)), 1.0 / (img.cols / (w / 2.0))));
+		if (enlarge_small && (img.rows / h < 1.0 / 4.0 || img.cols / w < 1.0 / 6.0)) {
+			// make it bigger if it's really small
+			ratio = min((h / 2.0 / img.rows), (w / 2.0 / img.cols)); // TODO I didn't really think through this, probably broken.
+		}
+		resize(tmp, tmp, Size(), ratio, ratio, INTER_CUBIC);
+		cv::imshow(
+			(name != "") ? name : std::to_string(++__mycounter),
+			tmp);
+#endif
+	}
+
+	//checked read
+	Mat cread(std::string path, int flags) {
+		Mat res = imread(path, flags);
+		if (res.empty()) {
+			std::cout << "Upsz" << std::endl;
+			exit(-1);
+		}
+		return res;
+	}
+
+	VideoCapture cread_v(string path) {
+		VideoCapture cap(path);
+		double frcnt = cap.get(CAP_PROP_FRAME_COUNT); //TODO technically this is a double?
+		printf("rate: %f, frames: %f\n", cap.get(CAP_PROP_FPS), frcnt);
+		if (!cap.isOpened() || frcnt == 0) {
+			cout << "Upsz" << endl;
+			exit(-1);
+		}
+		return cap;
+	}
+
+	//TODO map/elements should be const?
+	void tracker(const Mat img, map<string, int> &vals, std::function<void(Mat&, const Mat&, map<string, int>&)> mkDisp, int counts = 255, bool enable = true) {
+		if (!mmydebug || !enable) return;
+		string ttt;
+		string* thetext = & ttt;
+		Mat* theimg = 0;
+		auto tup = make_tuple(&thetext, &theimg); //TODO bleh this is a mess
+
+		namedWindow("tracker");
+		setMouseCallback("tracker", [](int event, int x, int y, int flags, void *userdata){
+			auto tup = *((tuple<string**,Mat**>*)userdata); //TODO ugh pointer syntax
+			string* thetext = *get<string**>(tup);
+			Mat* theimg = *get<Mat**>(tup);
+			vector<Mat> vec;
+			if (theimg) {
+				split(*theimg, vec);//stupid hacks
+				*thetext = "(y" +std::to_string(y) + ",x" + std::to_string(x) + ") || (b"
+					+ to_string(vec[0].at<uchar>(y, x)) + ",g"
+					+ ((vec.size() > 1) ? (to_string(vec[1].at<uchar>(y, x)) + ",r"
+						+ to_string(vec[2].at<uchar>(y, x)) + ")") : ""); //TODO type specificity hack issues
+			}}, &tup);
+		mshow(img, "tracker");
+		for (auto& v : vals) {
+			createTrackbar(v.first, "tracker", &(v.second), counts, nullptr, nullptr);
+		}
+		Mat disp;
+		while (1) {
+			mkDisp(disp, img, vals);
+			theimg = &disp;
+			if (thetext) {
+				putText(disp, *thetext, Point(30, 30), FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,0));
+			}
+			mshow(disp, "tracker");
+			char key = (char)waitKey(10);
+			if (key == 'q') {
+				for (auto v : vals) {
+					printf("%s: %d, ", v.first.c_str(), v.second);
+				}
+				printf("\n");
+				break;
+			}
+		}
+	}
+
+}
+#endif
+
+using namespace mUtil;
+
+void flld() {
+	Mat_<Vec3b> img = cread("filled.jpg", IMREAD_COLOR), dest;
+	vector<Mat_<uchar>> channels;
+	split(img, channels);
+	imwrite("red_stud.png", channels[2]);
+	imwrite("inv_red_stud.png", ~channels[2]);
+	vector<Mat_<uchar>> channels2 = { channels[0], channels[1], ~channels[2] };
+	merge(channels2, dest);
+	imwrite("result_stud.png", dest);
+	waitKey();
+	}
+	
+int main(){ flld(); }
+
+/////////////////////////////////////////////////////////////////////////
+
+Egy mogyorós csokoládé gyártása során egyes termékeket véletlenszerûen kiválasztanak a minõségellenõrzéshez. A félbevágott csokoládészeletrõl egy különleges képalkotó eljárás segítségével olyan felvételt készítenek, mely eltérõ színnel emeli ki a különbözõ anyagszerkezettel rendelkezõ részeket. 
+
+Írj programot, mely az alábbi lépéseket végzi el:
+
+1. Olvasd be a colored_choc.png nevû képet színesben. 
+2. Hozz létre egy 1 csatornás, 8 bites (bitmélység) tiszta fekete képet, melynek mérete az eredeti képével azonos. 
+    Mentsd a képet: black_stud.png néven.
+3. Ha az eredeti képen egy p(x, y) pont sárga, akkor az elõbb létrehozott képen állítsd be a p pont értékét 255-re. 
+    Mentsd a képet: mask_stud.png
+4. Határozd meg a csokoládé pixelben mért területét (fehér pontok száma a maszkon).
+    Jelenítsd meg az eredményt a standard kimeneten. (Más üzenetet ne írj ki.)
+
+	#ifndef _my_util_cpp
+#define _my_util_cpp
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include <atomic>
+#include <iostream>
+#include <map>
+#include <tuple>
+
+using namespace std;
+using namespace cv;
+
+#if defined(NOHEADLESS)
+namespace Resolution { //TODO cant believe this hack works
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <X11/Xlib.h>
+#endif
+
+	//https://stackoverflow.com/questions/11041607/getting-screen-size-on-opencv
+	void getScreenResolution(int &width, int &height) {
+#if defined(_WIN32)
+		width = (int)GetSystemMetrics(SM_CXSCREEN);
+		height = (int)GetSystemMetrics(SM_CYSCREEN);
+#else
+		Display* disp = XOpenDisplay(NULL);
+		Screen*  scrn = DefaultScreenOfDisplay(disp);
+		width = scrn->width;
+		height = scrn->height;
+#endif
+	}
+
+}
+#endif
+
+namespace mUtil {
+	using namespace cv;
+
+	static bool mmydebug = false;
+#define DEBUG(X) do { if(mmydebug) { X; } } while(0)
+
+	static int __mycounter = 0;
+	//TODO enlarge if too small?
+	void mshow(const cv::Mat &img, string name = "",  bool enlarge_small = true) {
+#if defined(NOHEADLESS)	    
+		if (!mmydebug) return;
+
+		Mat tmp;
+		img.copyTo(tmp);
+		int w, h;
+		Resolution::getScreenResolution(w, h);
+		double ratio = 1.0;
+		// size to at most 1/4th of the screen
+		ratio = min(1.0, min(1.0 / (img.rows / (h / 2.0)), 1.0 / (img.cols / (w / 2.0))));
+		if (enlarge_small && (img.rows / h < 1.0 / 4.0 || img.cols / w < 1.0 / 6.0)) {
+			// make it bigger if it's really small
+			ratio = min((h / 2.0 / img.rows), (w / 2.0 / img.cols)); // TODO I didn't really think through this, probably broken.
+		}
+		resize(tmp, tmp, Size(), ratio, ratio, INTER_CUBIC);
+		cv::imshow(
+			(name != "") ? name : std::to_string(++__mycounter),
+			tmp);
+#endif
+	}
+
+	//checked read
+	Mat cread(std::string path, int flags) {
+		Mat res = imread(path, flags);
+		if (res.empty()) {
+			std::cout << "Upsz" << std::endl;
+			exit(-1);
+		}
+		return res;
+	}
+
+	VideoCapture cread_v(string path) {
+		VideoCapture cap(path);
+		double frcnt = cap.get(CAP_PROP_FRAME_COUNT); //TODO technically this is a double?
+		printf("rate: %f, frames: %f\n", cap.get(CAP_PROP_FPS), frcnt);
+		if (!cap.isOpened() || frcnt == 0) {
+			cout << "Upsz" << endl;
+			exit(-1);
+		}
+		return cap;
+	}
+
+	//TODO map/elements should be const?
+	void tracker(const Mat img, map<string, int> &vals, std::function<void(Mat&, const Mat&, map<string, int>&)> mkDisp, int counts = 255, bool enable = true) {
+		if (!mmydebug || !enable) return;
+		string ttt;
+		string* thetext = & ttt;
+		Mat* theimg = 0;
+		auto tup = make_tuple(&thetext, &theimg); //TODO bleh this is a mess
+
+		namedWindow("tracker");
+		setMouseCallback("tracker", [](int event, int x, int y, int flags, void *userdata){
+			auto tup = *((tuple<string**,Mat**>*)userdata); //TODO ugh pointer syntax
+			string* thetext = *get<string**>(tup);
+			Mat* theimg = *get<Mat**>(tup);
+			vector<Mat> vec;
+			if (theimg) {
+				split(*theimg, vec);//stupid hacks
+				*thetext = "(y" +std::to_string(y) + ",x" + std::to_string(x) + ") || (b"
+					+ to_string(vec[0].at<uchar>(y, x)) + ",g"
+					+ ((vec.size() > 1) ? (to_string(vec[1].at<uchar>(y, x)) + ",r"
+						+ to_string(vec[2].at<uchar>(y, x)) + ")") : ""); //TODO type specificity hack issues
+			}}, &tup);
+		mshow(img, "tracker");
+		for (auto& v : vals) {
+			createTrackbar(v.first, "tracker", &(v.second), counts, nullptr, nullptr);
+		}
+		Mat disp;
+		while (1) {
+			mkDisp(disp, img, vals);
+			theimg = &disp;
+			if (thetext) {
+				putText(disp, *thetext, Point(30, 30), FONT_HERSHEY_SIMPLEX, 1, Scalar(0,255,0));
+			}
+			mshow(disp, "tracker");
+			char key = (char)waitKey(10);
+			if (key == 'q') {
+				for (auto v : vals) {
+					printf("%s: %d, ", v.first.c_str(), v.second);
+				}
+				printf("\n");
+				break;
+			}
+		}
+	}
+
+}
+#endif
+
+using namespace mUtil;
+
+void choc() {
+	Mat_<Vec3b> img = cread("colored_choc.png", IMREAD_COLOR), luv;
+	Mat_<uchar> black = Mat::zeros(img.size(), CV_8UC1), mask;
+	imwrite("black_stud.png", black);
+
+	cvtColor(img, luv, COLOR_BGR2Luv);
+	map<string, int> vals{ {"l", 0}, {"lu", 255}, {"u", 0}, {"uu", 255}, {"v", 0}, {"vu", 255} };
+	tracker(img, vals, [&luv](Mat& disp, const Mat& img, map<string, int>& vals) {
+		Mat_<Vec3b> tmp = img.clone(), tmp2;
+		Mat_<uchar> mask;
+		inRange(luv, Scalar(vals["l"], vals["u"], vals["v"]), Scalar(vals["lu"], vals["uu"], vals["vu"]), mask);
+		double t = 0.3;
+		disp = ((1 - t) * tmp.setTo(Scalar(0, 0, 0), ~mask) + t * img);
+	}, 255, false);
+	inRange(luv, Scalar(0, 0, 172), Scalar(255, 255, 255), mask);
+	mshow(mask);
+	mshow(black);
+	black.setTo(255, mask);
+	mshow(img);
+	mshow(mask);
+	mshow(black);
+	imwrite("mask_stud.png", mask);
+	printf("%d\n", countNonZero(black));
+	DEBUG(waitKey());
+}
+
+	
+int main(){ choc(); }
+
+
+/////////////////////////////////////////////////////////////////////
+
+
+Írj programot, mely az alábbi lépéseket végzi el:
+
+1. Olvasd be az incognito.jpg nevû képet szürkeskálában. 
+2. Végezz bináris küszöbölést. A kalap és a körön kívüli rész legyen fekete, a többi pont legyen fehér az eredményképen. 
+    Mentsd a képet: result_stud.png
+
+Ne végezz más mûveletet a képen. 
+
+
+
+#include <iostream>
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
+using namespace std;
+using namespace cv;
+
+void incognito(){
+    Mat_<uchar> img = imread("incognito.jpg", IMREAD_GRAYSCALE);
+    threshold(img, img, 0, 255, THRESH_OTSU);
+    imwrite("result_stud.png", img);
+}
+
+
+int main(){
+    incognito();
+    return 0;
+}
+
